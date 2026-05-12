@@ -2,6 +2,11 @@ import * as vscode from "vscode";
 import { CancellationToken, LanguageModelChatInformation } from "vscode";
 
 import type { HFApiMode, HFModelItem, HFModelsResponse } from "./types";
+import {
+	createReasoningEffortConfigurationSchema,
+	type ModelPickerChatInformation,
+	isReasoningEffortValue,
+} from "./modelConfiguration";
 import { normalizeUserModels } from "./utils";
 import { VersionManager } from "./versionManager";
 import { fetchGeminiModels } from "./gemini/geminiApi";
@@ -27,7 +32,7 @@ export async function prepareLanguageModelChatInformation(
 	const config = vscode.workspace.getConfiguration();
 	const userModels = normalizeUserModels(config.get<unknown>("oaicopilot.models", []));
 
-	let infos: LanguageModelChatInformation[];
+	let infos: ModelPickerChatInformation[];
 	if (userModels && userModels.length > 0) {
 		// Return user-provided models directly
 		infos = userModels
@@ -37,10 +42,11 @@ export async function prepareLanguageModelChatInformation(
 				const maxOutput = m?.max_completion_tokens ?? m?.max_tokens ?? DEFAULT_MAX_TOKENS;
 				const maxInput = Math.max(1, contextLen - maxOutput);
 
-				// 使用配置ID（如果存在）来生成唯一的模型ID
+				// Keep the model identifier unique while keeping the picker label readable.
 				const modelId = m.configId ? `${m.id}::${m.configId}` : m.id;
-				const modelName = m.displayName || (m.configId ? `${m.id}::${m.configId}` : `${m.id}`);
+				const modelName = m.displayName || `${m.id}`;
 				const detail = m.owned_by ? `${m.owned_by} (${EXTENSION_LABEL})` : EXTENSION_LABEL;
+				const reasoningEffort = isReasoningEffortValue(m.reasoning_effort) ? m.reasoning_effort : undefined;
 
 				return {
 					id: modelId,
@@ -52,11 +58,14 @@ export async function prepareLanguageModelChatInformation(
 					maxInputTokens: maxInput,
 					maxOutputTokens: maxOutput,
 					isUserSelectable: true,
+					...(reasoningEffort
+						? { configurationSchema: createReasoningEffortConfigurationSchema(reasoningEffort) }
+						: {}),
 					capabilities: {
 						toolCalling: true,
 						imageInput: m?.vision ?? false,
 					},
-				} satisfies LanguageModelChatInformation;
+				} satisfies ModelPickerChatInformation;
 			});
 	} else {
 		// Fallback: Fetch models from API
@@ -83,7 +92,7 @@ export async function prepareLanguageModelChatInformation(
 
 			// Build entries for all providers that support tool calling
 			const toolProviders = providers.filter((p) => p.supports_tools === true);
-			const entries: LanguageModelChatInformation[] = [];
+			const entries: ModelPickerChatInformation[] = [];
 
 			for (const p of toolProviders) {
 				const contextLen = p?.context_length ?? DEFAULT_CONTEXT_LENGTH;
