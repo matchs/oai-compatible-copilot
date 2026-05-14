@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.4.1 (2026-05-14)
+
+- Feat(usage): Implement token usage reporting for Context Window widget
+
 ## 0.4.0 (2026-05-14)
 
 - Feat: Enhance tools parameter handling — merge tools arrays instead of overwriting across all API modes (Anthropic, Gemini, Ollama, OpenAI, OpenAI Responses).
