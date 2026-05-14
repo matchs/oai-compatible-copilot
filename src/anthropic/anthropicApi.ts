@@ -300,7 +300,109 @@ export class AnthropicApi extends CommonApi<AnthropicMessage, AnthropicRequestBo
 			}
 		}
 
+		// Anthropic accepts at most 4 `cache_control` breakpoints per request. The host (Copilot)
+		// may emit several breakpoints inside `messages` via its own caching strategy; combined with
+		// the system + last-tool breakpoints we add above, the total can exceed the cap and the API
+		// returns 400. Strip the *earliest* in-message breakpoints first — Anthropic's cache lookup
+		// matches the longest cached prefix, so the most recent (rightmost) breakpoints carry the
+		// most value, and the system / tools breakpoints sit at the very front of the prefix and
+		// rarely change, so they're worth keeping.
+		if (this._cacheControlEnabled) {
+			this.enforceCacheControlBudget(rb);
+		}
+
 		return rb;
+	}
+
+	/**
+	 * Anthropic accepts at most 4 `cache_control` breakpoints per request. This method counts
+	 * every breakpoint currently set on `system`, `tools`, and each message content block, and
+	 * if the total exceeds 4, strips breakpoints in a stable priority order:
+	 *   1. In-message breakpoints, earliest first (least valuable — covers shortest prefix).
+	 *   2. The tools breakpoint, if still over budget after step 1.
+	 *   3. The system breakpoint, last (most valuable — covers longest stable prefix).
+	 */
+	private enforceCacheControlBudget(rb: AnthropicRequestBody): void {
+		const MAX = 4;
+
+		// Tally and locate every breakpoint we might need to strip.
+		let total = 0;
+		const systemBlocksWithCC: AnthropicTextBlock[] = [];
+		const toolsWithCC: { name: string }[] = [];
+		const msgBlocksWithCC: { cache_control?: AnthropicCacheControl }[] = [];
+
+		if (Array.isArray(rb.system)) {
+			for (const block of rb.system) {
+				if (block.cache_control) {
+					systemBlocksWithCC.push(block);
+					total++;
+				}
+			}
+		}
+		if (rb.tools) {
+			for (const tool of rb.tools) {
+				if (tool.cache_control) {
+					toolsWithCC.push(tool);
+					total++;
+				}
+			}
+		}
+		for (const msg of rb.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					const b = block as { cache_control?: AnthropicCacheControl };
+					if (b.cache_control) {
+						msgBlocksWithCC.push(b);
+						total++;
+					}
+				}
+			}
+		}
+
+		if (total <= MAX) {
+			return;
+		}
+
+		let toRemove = total - MAX;
+		const removalLog: string[] = [];
+
+		// Step 1: drop earliest in-message breakpoints (push-order == document order here because
+		// we walked messages front-to-back, and each message's blocks front-to-back).
+		for (const block of msgBlocksWithCC) {
+			if (toRemove === 0) {
+				break;
+			}
+			delete block.cache_control;
+			toRemove--;
+			removalLog.push("message");
+		}
+
+		// Step 2: drop tools breakpoint(s) if still over budget.
+		for (const tool of toolsWithCC) {
+			if (toRemove === 0) {
+				break;
+			}
+			delete (tool as { cache_control?: unknown }).cache_control;
+			toRemove--;
+			removalLog.push("tool");
+		}
+
+		// Step 3: as a last resort, drop the system breakpoint(s).
+		for (const block of systemBlocksWithCC) {
+			if (toRemove === 0) {
+				break;
+			}
+			delete block.cache_control;
+			toRemove--;
+			removalLog.push("system");
+		}
+
+		logger.debug("anthropic.cache_control.trim", {
+			modelId: this._modelId,
+			originalCount: total,
+			finalCount: MAX,
+			dropped: removalLog,
+		});
 	}
 
 	/**
