@@ -45,7 +45,10 @@ suite("modelConfiguration", () => {
 	test("reads the selected reasoning effort from VS Code model configuration", () => {
 		assert.strictEqual(getConfiguredReasoningEffort(undefined), "medium");
 		assert.strictEqual(getConfiguredReasoningEffort(undefined, "low"), "low");
-		assert.strictEqual(getConfiguredReasoningEffort({ modelConfiguration: { reasoningEffort: "high" } } as never), "high");
+		assert.strictEqual(
+			getConfiguredReasoningEffort({ modelConfiguration: { reasoningEffort: "high" } } as never),
+			"high"
+		);
 		assert.strictEqual(getConfiguredReasoningEffort({ configuration: { reasoningEffort: "max" } } as never), "max");
 		assert.strictEqual(
 			getConfiguredReasoningEffort({ modelConfiguration: { reasoningEffort: "invalid" } } as never, "xhigh"),
@@ -62,11 +65,7 @@ suite("modelConfiguration", () => {
 		try {
 			await config.update("oaicopilot.models", [model], vscode.ConfigurationTarget.Global);
 
-			const infos = await prepareLanguageModelChatInformation(
-				{ silent: true },
-				cts.token,
-				{} as vscode.SecretStorage
-			);
+			const infos = await prepareLanguageModelChatInformation({ silent: true }, cts.token, {} as vscode.SecretStorage);
 			const info = infos.find((item) => item.id === "deepseek-v4-flash") as ModelPickerChatInformation | undefined;
 
 			assert.ok(info, "deepseek-v4-flash should be registered");
@@ -94,11 +93,7 @@ suite("modelConfiguration", () => {
 		try {
 			await config.update("oaicopilot.models", [model], vscode.ConfigurationTarget.Global);
 
-			const infos = await prepareLanguageModelChatInformation(
-				{ silent: true },
-				cts.token,
-				{} as vscode.SecretStorage
-			);
+			const infos = await prepareLanguageModelChatInformation({ silent: true }, cts.token, {} as vscode.SecretStorage);
 			const info = infos.find((item) => item.id === "deepseek-v4-flash") as ModelPickerChatInformation | undefined;
 
 			assert.ok(info, "deepseek-v4-flash should be registered");
